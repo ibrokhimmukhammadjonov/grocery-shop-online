@@ -1,0 +1,206 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_iconly/flutter_iconly.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:grocery_shop_app/screens/cart/cart_widget.dart';
+import 'package:grocery_shop_app/services/global_methods.dart';
+import 'package:grocery_shop_app/widgets/text_widget.dart';
+import 'package:grocery_shop_app/providers/cart_provider.dart';
+import 'package:grocery_shop_app/providers/orders_provider.dart';
+import 'package:grocery_shop_app/providers/products_provider.dart';
+import 'package:grocery_shop_app/widgets/empty_screen.dart';
+import 'package:grocery_shop_app/widgets/feed_items.dart';
+import 'package:uuid/uuid.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../../models/products_model.dart';
+import '../../services/utils.dart';
+import '../checkout_screen.dart';
+
+class CartScreen extends StatefulWidget {
+  const CartScreen({Key? key}) : super(key: key);
+
+  @override
+  State<CartScreen> createState() => _CartScreenState();
+}
+
+class _CartScreenState extends State<CartScreen> {
+  bool _isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = Utils(context).color;
+    Size size = Utils(context).getScreenSize;
+    final cartProvider = Provider.of<CartProvider>(context);
+    final cartItemsList =
+    cartProvider.getCartItems.values.toList().reversed.toList();
+    return cartItemsList.isEmpty
+        ? const EmptyScreen(
+      title: 'Your cart is empty',
+      subtitle: 'Add something and make me happy :)',
+      buttonText: 'Shop now',
+      imagePath: 'assets/images/cart.png',
+    )
+        : Scaffold(
+      appBar: AppBar(
+          automaticallyImplyLeading: false,
+          elevation: 0,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          title: TextWidget(
+            text: 'Cart (${cartItemsList.length})',
+            color: color,
+            isTitle: true,
+            textSize: 22,
+          ),
+          actions: [
+            IconButton(
+              onPressed: () {
+                GlobalMethods.warningDialog(
+                    title: 'Empty your cart?',
+                    subtitle: 'Are you sure?',
+                    fct: () async {
+                      await cartProvider.clearOnlineCart();
+                      cartProvider.clearLocalCart();
+                      setState(() {}); // Update the UI after clearing the cart
+                    },
+                    context: context);
+              },
+              icon: Icon(
+                IconlyBroken.delete,
+                color: color,
+              ),
+            ),
+          ]),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              _next(ctx: context), // Updated from _checkout to _next
+              Expanded(
+                child: ListView.builder(
+                  itemCount: cartItemsList.length,
+                  itemBuilder: (ctx, index) {
+                    return ChangeNotifierProvider.value(
+                        value: cartItemsList[index],
+                        child: CartWidget(
+                          q: cartItemsList[index].quantity,
+                        ));
+                  },
+                ),
+              ),
+              _anythingElse(ctx: context),
+            ],
+          ),
+          if (_isLoading)
+            const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+              ),
+            )
+        ],
+      ),
+    );
+  }
+
+  Widget _next({required BuildContext ctx}) {
+    final Color color = Utils(ctx).color;
+    Size size = Utils(ctx).getScreenSize;
+    final cartProvider = Provider.of<CartProvider>(ctx);
+    double total = 0.0;
+    final productProvider = Provider.of<ProductsProvider>(ctx);
+    cartProvider.getCartItems.forEach((key, value) {
+      final getCurrProduct = productProvider.findProById(value.productId);
+      total += (getCurrProduct.isOnSale
+          ? getCurrProduct.salePrice
+          : getCurrProduct.price) *
+          value.quantity;
+    });
+    return SizedBox(
+      width: double.infinity,
+      height: size.height * 0.1,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(children: [
+          Material(
+            color: Colors.green,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                Navigator.of(ctx).push(
+                  MaterialPageRoute(
+                    builder: (context) => const CheckoutScreen(),
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: TextWidget(
+                  text: 'Next',
+                  textSize: 20,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const Spacer(),
+          FittedBox(
+            child: TextWidget(
+              text: 'Total: \$${total.toStringAsFixed(2)}',
+              color: color,
+              textSize: 18,
+              isTitle: true,
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _anythingElse({required BuildContext ctx}) {
+    final Utils utils = Utils(ctx);
+    final Color color = utils.color;
+    Size size = utils.getScreenSize;
+    final productProvider = Provider.of<ProductsProvider>(ctx);
+    List<ProductModel> allProducts = productProvider.getProducts;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 50),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TextWidget(
+            text: 'Anything Else?',
+            color: color,
+            textSize: 20,
+            isTitle: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: size.height * 0.3,
+          child: GridView.count(
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 0.95,
+            children: allProducts.length < 10
+                ? allProducts.map((product) => ChangeNotifierProvider.value(
+              value: product,
+              child: SizedBox(
+                child: FeedsWidget(),
+              ),
+            )).toList()
+                : allProducts.sublist(0, 10).map((product) => ChangeNotifierProvider.value(
+              value: product,
+              child: SizedBox(
+                child: FeedsWidget(),
+              ),
+            )).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
